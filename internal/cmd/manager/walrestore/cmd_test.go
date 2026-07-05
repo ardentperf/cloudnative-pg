@@ -20,6 +20,10 @@ SPDX-License-Identifier: Apache-2.0
 package walrestore
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+
 	barmanRestorer "github.com/cloudnative-pg/barman-cloud/pkg/restorer"
 	"k8s.io/utils/ptr"
 
@@ -28,6 +32,70 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+var _ = Describe("end-of-wal-stream flags", func() {
+	var walRestorer *barmanRestorer.WALRestorer
+	var testSpoolDirectory string
+
+	BeforeEach(func() {
+		testSpoolDirectory = GinkgoT().TempDir()
+		endOfWALStreamSpoolDirectory = testSpoolDirectory
+		var err error
+		walRestorer, err = barmanRestorer.New(context.Background(), nil, testSpoolDirectory)
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	AfterEach(func() {
+		endOfWALStreamSpoolDirectory = SpoolDirectory
+	})
+
+	It("returns end-of-WAL only for the timeline that set the flag", func() {
+		results := []barmanRestorer.Result{
+			{WalName: "000000010000000000000001"},
+			{WalName: "000000010000000000000002", Err: barmanRestorer.ErrWALNotFound},
+		}
+
+		Expect(isEndOfWALStream(results)).To(BeTrue())
+		Expect(setEndOfWALStreamFlags(results)).To(Succeed())
+		Expect(filepath.Join(testSpoolDirectory, "end-of-wal-stream-00000001")).To(BeAnExistingFile())
+
+		Expect(checkEndOfWALStreamFlag(walRestorer, "000000020000000000000001")).To(Succeed())
+		Expect(filepath.Join(testSpoolDirectory, "end-of-wal-stream-00000001")).To(BeAnExistingFile())
+
+		Expect(checkEndOfWALStreamFlag(walRestorer, "000000010000000000000003")).
+			To(MatchError(ErrEndOfWALStreamReached))
+		Expect(filepath.Join(testSpoolDirectory, "end-of-wal-stream-00000001")).ToNot(BeAnExistingFile())
+	})
+
+	It("does not consume timeline flags for non-WAL requests", func() {
+		Expect(setEndOfWALStreamFlags([]barmanRestorer.Result{
+			{WalName: "000000010000000000000002", Err: barmanRestorer.ErrWALNotFound},
+		})).To(Succeed())
+
+		Expect(checkEndOfWALStreamFlag(walRestorer, "00000002.history")).To(Succeed())
+		Expect(filepath.Join(testSpoolDirectory, "end-of-wal-stream-00000001")).To(BeAnExistingFile())
+	})
+
+	It("ignores missing non-WAL files when detecting end-of-WAL", func() {
+		results := []barmanRestorer.Result{
+			{WalName: "00000002.history", Err: barmanRestorer.ErrWALNotFound},
+		}
+
+		Expect(isEndOfWALStream(results)).To(BeFalse())
+		Expect(setEndOfWALStreamFlags(results)).To(Succeed())
+		entries, err := os.ReadDir(testSpoolDirectory)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(entries).To(BeEmpty())
+	})
+
+	It("removes legacy global flags without treating them as authoritative", func() {
+		Expect(walRestorer.SetEndOfWALStream()).To(Succeed())
+		Expect(filepath.Join(testSpoolDirectory, "end-of-wal-stream")).To(BeAnExistingFile())
+
+		Expect(checkEndOfWALStreamFlag(walRestorer, "000000010000000000000001")).To(Succeed())
+		Expect(filepath.Join(testSpoolDirectory, "end-of-wal-stream")).ToNot(BeAnExistingFile())
+	})
+})
 
 var _ = Describe("Function isStreamingAvailable", func() {
 	It("returns false if cluster is nil", func() {

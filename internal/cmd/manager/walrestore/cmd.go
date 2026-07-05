@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -59,7 +60,11 @@ const (
 	// SpoolDirectory is the directory where we spool the WAL files that
 	// were pre-archived in parallel
 	SpoolDirectory = postgres.ScratchDataDirectory + "/wal-restore-spool"
+
+	endOfWALStreamFlagPrefix = "end-of-wal-stream-"
 )
+
+var endOfWALStreamSpoolDirectory = SpoolDirectory
 
 // NewCmd creates a new cobra command
 func NewCmd() *cobra.Command {
@@ -194,7 +199,7 @@ func run(ctx context.Context, pgData string, podName string, args []string) erro
 	// Step 2: return error if the end-of-wal-stream flag is set.
 	// We skip this step if streaming connection is not available
 	if isStreamingAvailable(cluster, podName) {
-		if err := checkEndOfWALStreamFlag(walRestorer); err != nil {
+		if err := checkEndOfWALStreamFlag(walRestorer, walName); err != nil {
 			return err
 		}
 	}
@@ -233,8 +238,7 @@ func run(ctx context.Context, pgData string, podName string, args []string) erro
 		contextLog.Info(
 			"Set end-of-wal-stream flag as one of the WAL files to be prefetched was not found")
 
-		err = walRestorer.SetEndOfWALStream()
-		if err != nil {
+		if err = setEndOfWALStreamFlags(walStatus); err != nil {
 			return err
 		}
 	}
@@ -291,8 +295,33 @@ func restoreWALViaPlugins(
 	return client.RestoreWAL(ctx, cluster, walName, postgres.BuildWALPath(pgData, destinationPathName))
 }
 
-// checkEndOfWALStreamFlag returns ErrEndOfWALStreamReached if the flag is set in the restorer
-func checkEndOfWALStreamFlag(walRestorer *barmanRestorer.WALRestorer) error {
+// checkEndOfWALStreamFlag returns ErrEndOfWALStreamReached if the flag is set for the requested WAL timeline.
+func checkEndOfWALStreamFlag(walRestorer *barmanRestorer.WALRestorer, walName string) error {
+	if err := resetLegacyEndOfWALStreamFlag(walRestorer); err != nil {
+		return err
+	}
+
+	flagName, err := endOfWALStreamFlagName(walName)
+	if err != nil {
+		return nil
+	}
+
+	fileName := filepath.Join(endOfWALStreamSpoolDirectory, flagName)
+	_, err = os.Stat(fileName)
+	if err == nil {
+		if err := os.Remove(fileName); err != nil {
+			return fmt.Errorf("failed to remove end-of-wal-stream flag %q: %w", flagName, err)
+		}
+
+		return ErrEndOfWALStreamReached
+	}
+	if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to check end-of-wal-stream flag %q: %w", fileName, err)
+	}
+	return nil
+}
+
+func resetLegacyEndOfWALStreamFlag(walRestorer *barmanRestorer.WALRestorer) error {
 	contain, err := walRestorer.IsEndOfWALStream()
 	if err != nil {
 		return err
@@ -303,8 +332,6 @@ func checkEndOfWALStreamFlag(walRestorer *barmanRestorer.WALRestorer) error {
 		if err != nil {
 			return err
 		}
-
-		return ErrEndOfWALStreamReached
 	}
 	return nil
 }
@@ -313,12 +340,57 @@ func checkEndOfWALStreamFlag(walRestorer *barmanRestorer.WALRestorer) error {
 // a file-not-found error
 func isEndOfWALStream(results []barmanRestorer.Result) bool {
 	for _, result := range results {
-		if errors.Is(result.Err, barmanRestorer.ErrWALNotFound) {
+		if errors.Is(result.Err, barmanRestorer.ErrWALNotFound) && postgres.IsWALFile(result.WalName) {
 			return true
 		}
 	}
 
 	return false
+}
+
+func setEndOfWALStreamFlags(results []barmanRestorer.Result) error {
+	flags := make(map[string]struct{})
+	for _, result := range results {
+		if !errors.Is(result.Err, barmanRestorer.ErrWALNotFound) {
+			continue
+		}
+
+		flagName, err := endOfWALStreamFlagName(result.WalName)
+		if err != nil {
+			continue
+		}
+		flags[flagName] = struct{}{}
+	}
+
+	for flagName := range flags {
+		if err := touchEndOfWALStreamFlag(flagName); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func endOfWALStreamFlagName(walName string) (string, error) {
+	segment, err := postgres.SegmentFromName(walName)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%s%08X", endOfWALStreamFlagPrefix, segment.Tli), nil
+}
+
+func touchEndOfWALStreamFlag(flagName string) error {
+	fileName := filepath.Join(endOfWALStreamSpoolDirectory, flagName)
+	if err := os.MkdirAll(filepath.Dir(fileName), 0o700); err != nil {
+		return fmt.Errorf("failed to create end-of-wal-stream flag directory: %w", err)
+	}
+
+	if err := os.WriteFile(fileName, nil, 0o600); err != nil {
+		return fmt.Errorf("failed to create end-of-wal-stream flag %q: %w", flagName, err)
+	}
+
+	return nil
 }
 
 // mergeEnv merges all the values inside incomingEnv into env
