@@ -35,24 +35,12 @@ func logShutdownDiagnostics(ctx context.Context) {
 
 	contextLogger := log.FromContext(ctx)
 	for sample := 1; sample <= 3; sample++ {
-		if sample > 1 && !sleepForShutdownDiagnostics(diagCtx, 3*time.Second) {
-			return
+		if sample > 1 {
+			time.Sleep(3 * time.Second)
 		}
 		contextLogger.Info("PostgreSQL shutdown diagnostics",
 			"sample", sample,
 			"processes", collectProcDiagnostics(diagCtx, "/proc"))
-	}
-}
-
-func sleepForShutdownDiagnostics(ctx context.Context, delay time.Duration) bool {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-
-	select {
-	case <-timer.C:
-		return true
-	case <-ctx.Done():
-		return false
 	}
 }
 
