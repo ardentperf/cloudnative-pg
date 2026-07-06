@@ -52,12 +52,8 @@ func logShutdownDiagnosticsWithLogger(ctx context.Context, contextLogger log.Log
 }
 
 type procDiagnostics struct {
-	PID     string              `json:"pid"`
-	PPID    string              `json:"ppid,omitempty"`
-	State   string              `json:"state,omitempty"`
-	Wchan   string              `json:"wchan,omitempty"`
-	Command string              `json:"command,omitempty"`
-	Files   map[string][]string `json:"files"`
+	PID   string              `json:"pid"`
+	Files map[string][]string `json:"files"`
 }
 
 func collectProcDiagnostics(ctx context.Context, procRoot string) []procDiagnostics {
@@ -81,16 +77,8 @@ func collectProcDiagnostics(ctx context.Context, procRoot string) []procDiagnost
 		}
 
 		pid := filepath.Base(pidDir)
-		status, statusErr := readStatusFields(filepath.Join(pidDir, "status"))
-		wchan, wchanErr := readProcFile(filepath.Join(pidDir, "wchan"))
-		command, commandErr := readProcFile(filepath.Join(pidDir, "comm"))
-
 		processes = append(processes, procDiagnostics{
-			PID:     pid,
-			PPID:    statusValue(status, statusErr, "PPid"),
-			State:   statusValue(status, statusErr, "State"),
-			Wchan:   procValue(wchan, wchanErr),
-			Command: procValue(command, commandErr),
+			PID: pid,
 			Files: map[string][]string{
 				"cmdline": readProcLines(filepath.Join(pidDir, "cmdline"), 0, true),
 				"comm":    readProcLines(filepath.Join(pidDir, "comm"), 0, false),
@@ -106,29 +94,6 @@ func collectProcDiagnostics(ctx context.Context, procRoot string) []procDiagnost
 		})
 	}
 	return processes
-}
-
-func readStatusFields(fileName string) (map[string]string, error) {
-	result := make(map[string]string)
-	content, err := readProcFile(fileName)
-	if err != nil {
-		return result, err
-	}
-	for _, line := range strings.Split(content, "\n") {
-		key, value, ok := strings.Cut(line, ":")
-		if ok {
-			result[key] = strings.TrimSpace(value)
-		}
-	}
-	return result, nil
-}
-
-func readProcFile(fileName string) (string, error) {
-	data, err := os.ReadFile(fileName)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
 }
 
 func readProcLines(fileName string, maxLines int, nullSeparated bool) []string {
@@ -149,18 +114,4 @@ func readProcLines(fileName string, maxLines int, nullSeparated bool) []string {
 		result = append(result, line)
 	}
 	return result
-}
-
-func statusValue(status map[string]string, err error, key string) string {
-	if err != nil {
-		return err.Error()
-	}
-	return status[key]
-}
-
-func procValue(content string, err error) string {
-	if err == nil {
-		return strings.TrimSpace(content)
-	}
-	return err.Error()
 }

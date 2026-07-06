@@ -54,13 +54,9 @@ var _ = Describe("shutdown diagnostics", func() {
 		processes := collectProcDiagnostics(context.Background(), procRoot)
 
 		Expect(processes).To(HaveLen(1))
-		Expect(processes[0]).To(SatisfyAll(
-			HaveField("PID", "123"),
-			HaveField("State", "T (stopped)"),
-			HaveField("Wchan", "do_signal_stop"),
-			HaveField("Command", "postgres"),
-		))
+		Expect(processes[0]).To(HaveField("PID", "123"))
 		Expect(processes[0].Files["cmdline"]).To(Equal([]string{"postgres autovacuum worker "}))
+		Expect(processes[0].Files["status"]).To(ContainElement("State:\tT (stopped)"))
 		Expect(processes[0].Files["wchan"]).To(Equal([]string{"do_signal_stop"}))
 
 		originalProcRoot := shutdownDiagnosticsProcRoot
