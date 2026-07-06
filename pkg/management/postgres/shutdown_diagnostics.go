@@ -154,6 +154,7 @@ func appendProcOutput(ctx context.Context, out *strings.Builder, procRoot string
 		appendProcFile(out, "wchan", filepath.Join(pidDir, "wchan"), 0, false)
 		appendProcFile(out, "io", filepath.Join(pidDir, "io"), 0, false)
 		appendProcFile(out, "limits", filepath.Join(pidDir, "limits"), 0, false)
+		// stack and syscall are often ptrace/capability gated; log read errors inline.
 		appendProcFile(out, "syscall", filepath.Join(pidDir, "syscall"), 0, false)
 		appendProcFile(out, "stack", filepath.Join(pidDir, "stack"), 0, false)
 		appendProcFile(out, "sched head", filepath.Join(pidDir, "sched"), 35, false)
