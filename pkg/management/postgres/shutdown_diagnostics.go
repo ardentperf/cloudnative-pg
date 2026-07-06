@@ -70,9 +70,6 @@ func logProcessSummary(ctx context.Context, contextLogger log.Logger, procRoot s
 		}
 
 		pid := filepath.Base(pidDir)
-		if !isPID(pid) {
-			continue
-		}
 		status, statusErr := readStatusFields(filepath.Join(pidDir, "status"))
 		wchan, wchanErr := readProcFile(filepath.Join(pidDir, "wchan"))
 		command, commandErr := readProcFile(filepath.Join(pidDir, "comm"))
@@ -132,9 +129,6 @@ func logProcOutput(ctx context.Context, contextLogger log.Logger, procRoot strin
 		}
 
 		pid := filepath.Base(pidDir)
-		if !isPID(pid) {
-			continue
-		}
 		logProcFile(contextLogger, pid, "cmdline", filepath.Join(pidDir, "cmdline"), 0, true)
 		logProcFile(contextLogger, pid, "comm", filepath.Join(pidDir, "comm"), 0, false)
 		logProcFile(contextLogger, pid, "status", filepath.Join(pidDir, "status"), 90, false)
@@ -188,13 +182,4 @@ func errorString(err error) string {
 		return ""
 	}
 	return fmt.Sprintf("%v", err)
-}
-
-func isPID(value string) bool {
-	for _, char := range value {
-		if char < '0' || char > '9' {
-			return false
-		}
-	}
-	return value != ""
 }
