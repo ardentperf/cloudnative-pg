@@ -61,17 +61,23 @@ var _ = Describe("shutdown diagnostics", func() {
 
 		originalProcRoot := shutdownDiagnosticsProcRoot
 		shutdownDiagnosticsProcRoot = procRoot
+		originalSampleInterval := shutdownDiagnosticsSampleInterval
+		shutdownDiagnosticsSampleInterval = 0
 		DeferCleanup(func() {
 			shutdownDiagnosticsProcRoot = originalProcRoot
+			shutdownDiagnosticsSampleInterval = originalSampleInterval
 		})
 
 		spy := logtest.NewSpy()
 		logShutdownDiagnosticsWithLogger(context.Background(), spy)
 
-		Expect(spy.Records).To(HaveLen(1))
-		Expect(spy.Records[0]).To(SatisfyAll(
-			HaveField("Message", shutdownDiagnosticsMessage),
-			HaveField("Attributes", HaveKeyWithValue("processes", HaveLen(1))),
-		))
+		Expect(spy.Records).To(HaveLen(3))
+		for sample, record := range spy.Records {
+			Expect(record).To(SatisfyAll(
+				HaveField("Message", shutdownDiagnosticsMessage),
+				HaveField("Attributes", HaveKeyWithValue("sample", sample+1)),
+				HaveField("Attributes", HaveKeyWithValue("processes", HaveLen(1))),
+			))
+		}
 	})
 })
