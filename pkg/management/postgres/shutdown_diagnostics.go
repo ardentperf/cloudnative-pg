@@ -33,6 +33,7 @@ import (
 const (
 	shutdownDiagnosticsLeadTime = 30 * time.Second
 	shutdownDiagnosticsMaxTime  = 10 * time.Second
+	shutdownDiagnosticsMessage  = "PostgreSQL shutdown diagnostics"
 )
 
 var (
@@ -78,94 +79,119 @@ func logShutdownDiagnostics(ctx context.Context) {
 	diagCtx, cancel := context.WithTimeout(context.Background(), shutdownDiagnosticsMaxTime)
 	defer cancel()
 
-	var out strings.Builder
-	fmt.Fprintf(&out, "collect_time=%s\n", time.Now().UTC().Format(time.RFC3339))
-	appendProcessSummary(diagCtx, &out, shutdownDiagnosticsProcRoot)
-	appendProcOutput(diagCtx, &out, shutdownDiagnosticsProcRoot)
-
-	for _, line := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
-		contextLogger.Info("PostgreSQL shutdown diagnostics", "line", line)
-	}
+	contextLogger.Info(shutdownDiagnosticsMessage,
+		"section", "collection",
+		"event", "start",
+		"collectTime", time.Now().UTC().Format(time.RFC3339))
+	logProcessSummary(diagCtx, contextLogger, shutdownDiagnosticsProcRoot)
+	logProcOutput(diagCtx, contextLogger, shutdownDiagnosticsProcRoot)
 }
 
-func appendProcessSummary(ctx context.Context, out *strings.Builder, procRoot string) {
-	out.WriteString("--- process summary ---\n")
+func logProcessSummary(ctx context.Context, contextLogger log.Logger, procRoot string) {
 	pids, err := filepath.Glob(filepath.Join(procRoot, "[0-9]*"))
 	if err != nil {
-		fmt.Fprintf(out, "process listing failed: %v\n", err)
+		contextLogger.Info(shutdownDiagnosticsMessage,
+			"section", "process_summary",
+			"error", err.Error())
 		return
 	}
 
-	out.WriteString("    PID    PPID STATE WCHAN                            COMMAND\n")
 	for _, pidDir := range pids {
 		if err := ctx.Err(); err != nil {
-			fmt.Fprintf(out, "process listing stopped: %v\n", err)
+			contextLogger.Info(shutdownDiagnosticsMessage,
+				"section", "process_summary",
+				"error", err.Error())
 			return
 		}
 
-		status := readStatusFields(filepath.Join(pidDir, "status"))
-		fmt.Fprintf(out, "%7s %7s %-5s %-32s %s\n",
-			filepath.Base(pidDir),
-			status["PPid"],
-			status["State"],
-			strings.TrimSpace(readProcFile(filepath.Join(pidDir, "wchan"))),
-			strings.TrimSpace(readProcFile(filepath.Join(pidDir, "comm"))),
+		pid := filepath.Base(pidDir)
+		status, statusErr := readStatusFields(filepath.Join(pidDir, "status"))
+		wchan, wchanErr := readProcFile(filepath.Join(pidDir, "wchan"))
+		command, commandErr := readProcFile(filepath.Join(pidDir, "comm"))
+
+		contextLogger.Info(shutdownDiagnosticsMessage,
+			"section", "process_summary",
+			"pid", pid,
+			"ppid", status["PPid"],
+			"statusError", errorString(statusErr),
+			"state", status["State"],
+			"wchan", strings.TrimSpace(wchan),
+			"wchanError", errorString(wchanErr),
+			"command", strings.TrimSpace(command),
+			"commandError", errorString(commandErr),
 		)
 	}
 }
 
-func readStatusFields(fileName string) map[string]string {
+func readStatusFields(fileName string) (map[string]string, error) {
 	result := make(map[string]string)
-	for _, line := range strings.Split(readProcFile(fileName), "\n") {
+	content, err := readProcFile(fileName)
+	if err != nil {
+		return result, err
+	}
+	for _, line := range strings.Split(content, "\n") {
 		key, value, ok := strings.Cut(line, ":")
 		if ok {
 			result[key] = strings.TrimSpace(value)
 		}
 	}
-	return result
+	return result, nil
 }
 
-func readProcFile(fileName string) string {
+func readProcFile(fileName string) (string, error) {
 	data, err := os.ReadFile(fileName)
 	if err != nil {
-		return fmt.Sprintf("%v", err)
+		return "", err
 	}
-	return string(data)
+	return string(data), nil
 }
 
-func appendProcOutput(ctx context.Context, out *strings.Builder, procRoot string) {
-	out.WriteString("--- /proc all pids ---\n")
+func logProcOutput(ctx context.Context, contextLogger log.Logger, procRoot string) {
 	pids, err := filepath.Glob(filepath.Join(procRoot, "[0-9]*"))
 	if err != nil {
-		fmt.Fprintf(out, "cannot list %s: %v\n", procRoot, err)
+		contextLogger.Info(shutdownDiagnosticsMessage,
+			"section", "proc",
+			"error", err.Error())
 		return
 	}
 
 	for _, pidDir := range pids {
 		if err := ctx.Err(); err != nil {
-			fmt.Fprintf(out, "diagnostic collection stopped: %v\n", err)
+			contextLogger.Info(shutdownDiagnosticsMessage,
+				"section", "proc",
+				"error", err.Error())
 			return
 		}
 
-		fmt.Fprintf(out, "=== pid %s ===\n", filepath.Base(pidDir))
-		appendProcFile(out, "cmdline", filepath.Join(pidDir, "cmdline"), 0, true)
-		appendProcFile(out, "comm", filepath.Join(pidDir, "comm"), 0, false)
-		appendProcFile(out, "status", filepath.Join(pidDir, "status"), 90, false)
-		appendProcFile(out, "wchan", filepath.Join(pidDir, "wchan"), 0, false)
-		appendProcFile(out, "io", filepath.Join(pidDir, "io"), 0, false)
-		appendProcFile(out, "limits", filepath.Join(pidDir, "limits"), 0, false)
+		pid := filepath.Base(pidDir)
+		logProcFile(contextLogger, pid, "cmdline", filepath.Join(pidDir, "cmdline"), 0, true)
+		logProcFile(contextLogger, pid, "comm", filepath.Join(pidDir, "comm"), 0, false)
+		logProcFile(contextLogger, pid, "status", filepath.Join(pidDir, "status"), 90, false)
+		logProcFile(contextLogger, pid, "wchan", filepath.Join(pidDir, "wchan"), 0, false)
+		logProcFile(contextLogger, pid, "io", filepath.Join(pidDir, "io"), 0, false)
+		logProcFile(contextLogger, pid, "limits", filepath.Join(pidDir, "limits"), 0, false)
 		// stack and syscall are often ptrace/capability gated; log read errors inline.
-		appendProcFile(out, "syscall", filepath.Join(pidDir, "syscall"), 0, false)
-		appendProcFile(out, "stack", filepath.Join(pidDir, "stack"), 0, false)
-		appendProcFile(out, "sched head", filepath.Join(pidDir, "sched"), 35, false)
+		logProcFile(contextLogger, pid, "syscall", filepath.Join(pidDir, "syscall"), 0, false)
+		logProcFile(contextLogger, pid, "stack", filepath.Join(pidDir, "stack"), 0, false)
+		logProcFile(contextLogger, pid, "sched", filepath.Join(pidDir, "sched"), 35, false)
 	}
 }
 
-func appendProcFile(out *strings.Builder, title, fileName string, maxLines int, nullSeparated bool) {
-	fmt.Fprintf(out, "--- %s ---\n", title)
+func logProcFile(
+	contextLogger log.Logger,
+	pid string,
+	field string,
+	fileName string,
+	maxLines int,
+	nullSeparated bool,
+) {
 	data, err := os.ReadFile(fileName)
 	if err != nil {
-		fmt.Fprintf(out, "%v\n", err)
+		contextLogger.Info(shutdownDiagnosticsMessage,
+			"section", "proc",
+			"pid", pid,
+			"field", field,
+			"error", err.Error())
 		return
 	}
 
@@ -173,14 +199,22 @@ func appendProcFile(out *strings.Builder, title, fileName string, maxLines int, 
 	if nullSeparated {
 		content = strings.ReplaceAll(content, "\x00", " ")
 	}
-	if maxLines > 0 {
-		lines := strings.SplitAfter(content, "\n")
-		if len(lines) > maxLines {
-			content = strings.Join(lines[:maxLines], "")
+	for lineNumber, line := range strings.Split(strings.TrimRight(content, "\n"), "\n") {
+		if maxLines > 0 && lineNumber >= maxLines {
+			break
 		}
+		contextLogger.Info(shutdownDiagnosticsMessage,
+			"section", "proc",
+			"pid", pid,
+			"field", field,
+			"lineNumber", lineNumber+1,
+			"line", line)
 	}
-	out.WriteString(content)
-	if !strings.HasSuffix(content, "\n") {
-		out.WriteString("\n")
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
 	}
+	return fmt.Sprintf("%v", err)
 }

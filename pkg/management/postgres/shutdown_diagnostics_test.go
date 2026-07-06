@@ -23,8 +23,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
+
+	"github.com/cloudnative-pg/cloudnative-pg/pkg/management/logtest"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -97,12 +98,31 @@ var _ = Describe("shutdown diagnostics", func() {
 			Expect(os.WriteFile(filepath.Join(pidDir, name), []byte(content), 0o600)).To(Succeed())
 		}
 
-		var out strings.Builder
-		appendProcOutput(context.Background(), &out, procRoot)
+		spy := logtest.NewSpy()
+		logProcessSummary(context.Background(), spy, procRoot)
+		logProcOutput(context.Background(), spy, procRoot)
 
-		Expect(out.String()).To(ContainSubstring("=== pid 123 ==="))
-		Expect(out.String()).To(ContainSubstring("postgres autovacuum worker"))
-		Expect(out.String()).To(ContainSubstring("State:\tT (stopped)"))
-		Expect(out.String()).To(ContainSubstring("do_signal_stop"))
+		Expect(spy.Records).To(ContainElement(SatisfyAll(
+			HaveField("Message", shutdownDiagnosticsMessage),
+			HaveField("Attributes", HaveKeyWithValue("section", "process_summary")),
+			HaveField("Attributes", HaveKeyWithValue("pid", "123")),
+			HaveField("Attributes", HaveKeyWithValue("state", "T (stopped)")),
+			HaveField("Attributes", HaveKeyWithValue("wchan", "do_signal_stop")),
+			HaveField("Attributes", HaveKeyWithValue("command", "postgres")),
+		)))
+		Expect(spy.Records).To(ContainElement(SatisfyAll(
+			HaveField("Message", shutdownDiagnosticsMessage),
+			HaveField("Attributes", HaveKeyWithValue("section", "proc")),
+			HaveField("Attributes", HaveKeyWithValue("pid", "123")),
+			HaveField("Attributes", HaveKeyWithValue("field", "cmdline")),
+			HaveField("Attributes", HaveKeyWithValue("line", "postgres autovacuum worker ")),
+		)))
+		Expect(spy.Records).To(ContainElement(SatisfyAll(
+			HaveField("Message", shutdownDiagnosticsMessage),
+			HaveField("Attributes", HaveKeyWithValue("section", "proc")),
+			HaveField("Attributes", HaveKeyWithValue("pid", "123")),
+			HaveField("Attributes", HaveKeyWithValue("field", "wchan")),
+			HaveField("Attributes", HaveKeyWithValue("line", "do_signal_stop")),
+		)))
 	})
 })
