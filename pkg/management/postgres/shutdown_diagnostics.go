@@ -81,7 +81,6 @@ func collectProcDiagnostics(ctx context.Context, procRoot string) []procDiagnost
 				"status":  readProcLines(filepath.Join(pidDir, "status"), 90, false),
 				"wchan":   readProcLines(filepath.Join(pidDir, "wchan"), 0, false),
 				"io":      readProcLines(filepath.Join(pidDir, "io"), 0, false),
-				"limits":  readProcLines(filepath.Join(pidDir, "limits"), 0, false),
 				// stack and syscall are often ptrace/capability gated; log read errors inline.
 				"syscall": readProcLines(filepath.Join(pidDir, "syscall"), 0, false),
 				"stack":   readProcLines(filepath.Join(pidDir, "stack"), 0, false),
