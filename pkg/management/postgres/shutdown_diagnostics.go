@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/cloudnative-pg/machinery/pkg/log"
-	"github.com/mitchellh/go-ps"
 )
 
 const (
@@ -81,7 +80,7 @@ func logShutdownDiagnostics(ctx context.Context) {
 
 	var out strings.Builder
 	fmt.Fprintf(&out, "collect_time=%s\n", time.Now().UTC().Format(time.RFC3339))
-	appendProcessSummary(diagCtx, &out)
+	appendProcessSummary(diagCtx, &out, shutdownDiagnosticsProcRoot)
 	appendProcOutput(diagCtx, &out, shutdownDiagnosticsProcRoot)
 
 	for _, line := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
@@ -89,22 +88,49 @@ func logShutdownDiagnostics(ctx context.Context) {
 	}
 }
 
-func appendProcessSummary(ctx context.Context, out *strings.Builder) {
+func appendProcessSummary(ctx context.Context, out *strings.Builder, procRoot string) {
 	out.WriteString("--- process summary ---\n")
-	processes, err := ps.Processes()
+	pids, err := filepath.Glob(filepath.Join(procRoot, "[0-9]*"))
 	if err != nil {
 		fmt.Fprintf(out, "process listing failed: %v\n", err)
 		return
 	}
 
-	out.WriteString("    PID    PPID COMMAND\n")
-	for _, process := range processes {
+	out.WriteString("    PID    PPID STATE WCHAN                            COMMAND\n")
+	for _, pidDir := range pids {
 		if err := ctx.Err(); err != nil {
 			fmt.Fprintf(out, "process listing stopped: %v\n", err)
 			return
 		}
-		fmt.Fprintf(out, "%7d %7d %s\n", process.Pid(), process.PPid(), process.Executable())
+
+		status := readStatusFields(filepath.Join(pidDir, "status"))
+		fmt.Fprintf(out, "%7s %7s %-5s %-32s %s\n",
+			filepath.Base(pidDir),
+			status["PPid"],
+			status["State"],
+			strings.TrimSpace(readProcFile(filepath.Join(pidDir, "wchan"))),
+			strings.TrimSpace(readProcFile(filepath.Join(pidDir, "comm"))),
+		)
 	}
+}
+
+func readStatusFields(fileName string) map[string]string {
+	result := make(map[string]string)
+	for _, line := range strings.Split(readProcFile(fileName), "\n") {
+		key, value, ok := strings.Cut(line, ":")
+		if ok {
+			result[key] = strings.TrimSpace(value)
+		}
+	}
+	return result
+}
+
+func readProcFile(fileName string) string {
+	data, err := os.ReadFile(fileName)
+	if err != nil {
+		return fmt.Sprintf("%v", err)
+	}
+	return string(data)
 }
 
 func appendProcOutput(ctx context.Context, out *strings.Builder, procRoot string) {
