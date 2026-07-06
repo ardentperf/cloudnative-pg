@@ -21,7 +21,6 @@ package postgres
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,28 +52,20 @@ func logShutdownDiagnosticsWithLogger(ctx context.Context, contextLogger log.Log
 }
 
 type procDiagnostics struct {
-	PID          string                        `json:"pid"`
-	PPID         string                        `json:"ppid,omitempty"`
-	State        string                        `json:"state,omitempty"`
-	StatusError  string                        `json:"statusError,omitempty"`
-	Wchan        string                        `json:"wchan,omitempty"`
-	WchanError   string                        `json:"wchanError,omitempty"`
-	Command      string                        `json:"command,omitempty"`
-	CommandError string                        `json:"commandError,omitempty"`
-	Files        map[string]procFileDiagnostic `json:"files"`
-}
-
-type procFileDiagnostic struct {
-	Lines []string `json:"lines,omitempty"`
-	Error string   `json:"error,omitempty"`
+	PID     string              `json:"pid"`
+	PPID    string              `json:"ppid,omitempty"`
+	State   string              `json:"state,omitempty"`
+	Wchan   string              `json:"wchan,omitempty"`
+	Command string              `json:"command,omitempty"`
+	Files   map[string][]string `json:"files"`
 }
 
 func collectProcDiagnostics(ctx context.Context, procRoot string) []procDiagnostics {
 	pids, err := filepath.Glob(filepath.Join(procRoot, "[0-9]*"))
 	if err != nil {
 		return []procDiagnostics{{
-			Files: map[string]procFileDiagnostic{
-				"proc": {Error: err.Error()},
+			Files: map[string][]string{
+				"proc": {err.Error()},
 			},
 		}}
 	}
@@ -83,8 +74,8 @@ func collectProcDiagnostics(ctx context.Context, procRoot string) []procDiagnost
 	for _, pidDir := range pids {
 		if err := ctx.Err(); err != nil {
 			return append(processes, procDiagnostics{
-				Files: map[string]procFileDiagnostic{
-					"collection": {Error: err.Error()},
+				Files: map[string][]string{
+					"collection": {err.Error()},
 				},
 			})
 		}
@@ -95,15 +86,12 @@ func collectProcDiagnostics(ctx context.Context, procRoot string) []procDiagnost
 		command, commandErr := readProcFile(filepath.Join(pidDir, "comm"))
 
 		processes = append(processes, procDiagnostics{
-			PID:          pid,
-			PPID:         status["PPid"],
-			StatusError:  errorString(statusErr),
-			State:        status["State"],
-			Wchan:        strings.TrimSpace(wchan),
-			WchanError:   errorString(wchanErr),
-			Command:      strings.TrimSpace(command),
-			CommandError: errorString(commandErr),
-			Files: map[string]procFileDiagnostic{
+			PID:     pid,
+			PPID:    statusValue(status, statusErr, "PPid"),
+			State:   statusValue(status, statusErr, "State"),
+			Wchan:   procValue(wchan, wchanErr),
+			Command: procValue(command, commandErr),
+			Files: map[string][]string{
 				"cmdline": readProcLines(filepath.Join(pidDir, "cmdline"), 0, true),
 				"comm":    readProcLines(filepath.Join(pidDir, "comm"), 0, false),
 				"status":  readProcLines(filepath.Join(pidDir, "status"), 90, false),
@@ -143,29 +131,36 @@ func readProcFile(fileName string) (string, error) {
 	return string(data), nil
 }
 
-func readProcLines(fileName string, maxLines int, nullSeparated bool) procFileDiagnostic {
+func readProcLines(fileName string, maxLines int, nullSeparated bool) []string {
 	data, err := os.ReadFile(fileName)
 	if err != nil {
-		return procFileDiagnostic{Error: err.Error()}
+		return []string{err.Error()}
 	}
 
 	content := string(data)
 	if nullSeparated {
 		content = strings.ReplaceAll(content, "\x00", " ")
 	}
-	result := procFileDiagnostic{}
+	var result []string
 	for lineNumber, line := range strings.Split(strings.TrimRight(content, "\n"), "\n") {
 		if maxLines > 0 && lineNumber >= maxLines {
 			break
 		}
-		result.Lines = append(result.Lines, line)
+		result = append(result, line)
 	}
 	return result
 }
 
-func errorString(err error) string {
-	if err == nil {
-		return ""
+func statusValue(status map[string]string, err error, key string) string {
+	if err != nil {
+		return err.Error()
 	}
-	return fmt.Sprintf("%v", err)
+	return status[key]
+}
+
+func procValue(content string, err error) string {
+	if err == nil {
+		return strings.TrimSpace(content)
+	}
+	return err.Error()
 }

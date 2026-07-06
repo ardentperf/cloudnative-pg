@@ -60,8 +60,8 @@ var _ = Describe("shutdown diagnostics", func() {
 			HaveField("Wchan", "do_signal_stop"),
 			HaveField("Command", "postgres"),
 		))
-		Expect(processes[0].Files["cmdline"].Lines).To(Equal([]string{"postgres autovacuum worker "}))
-		Expect(processes[0].Files["wchan"].Lines).To(Equal([]string{"do_signal_stop"}))
+		Expect(processes[0].Files["cmdline"]).To(Equal([]string{"postgres autovacuum worker "}))
+		Expect(processes[0].Files["wchan"]).To(Equal([]string{"do_signal_stop"}))
 
 		originalProcRoot := shutdownDiagnosticsProcRoot
 		shutdownDiagnosticsProcRoot = procRoot
