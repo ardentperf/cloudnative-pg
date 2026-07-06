@@ -51,31 +51,32 @@ var _ = Describe("shutdown diagnostics", func() {
 			Expect(os.WriteFile(filepath.Join(pidDir, name), []byte(content), 0o600)).To(Succeed())
 		}
 
-		spy := logtest.NewSpy()
-		logProcessSummary(context.Background(), spy, procRoot)
-		logProcOutput(context.Background(), spy, procRoot)
+		processes := collectProcDiagnostics(context.Background(), procRoot)
 
-		Expect(spy.Records).To(ContainElement(SatisfyAll(
+		Expect(processes).To(HaveLen(1))
+		Expect(processes[0]).To(SatisfyAll(
+			HaveField("PID", "123"),
+			HaveField("State", "T (stopped)"),
+			HaveField("Wchan", "do_signal_stop"),
+			HaveField("Command", "postgres"),
+		))
+		Expect(processes[0].Files["cmdline"].Lines).To(Equal([]string{"postgres autovacuum worker "}))
+		Expect(processes[0].Files["wchan"].Lines).To(Equal([]string{"do_signal_stop"}))
+
+		originalProcRoot := shutdownDiagnosticsProcRoot
+		shutdownDiagnosticsProcRoot = procRoot
+		DeferCleanup(func() {
+			shutdownDiagnosticsProcRoot = originalProcRoot
+		})
+
+		spy := logtest.NewSpy()
+		logShutdownDiagnosticsWithLogger(context.Background(), spy)
+
+		Expect(spy.Records).To(HaveLen(1))
+		Expect(spy.Records[0]).To(SatisfyAll(
 			HaveField("Message", shutdownDiagnosticsMessage),
-			HaveField("Attributes", HaveKeyWithValue("section", "process_summary")),
-			HaveField("Attributes", HaveKeyWithValue("pid", "123")),
-			HaveField("Attributes", HaveKeyWithValue("state", "T (stopped)")),
-			HaveField("Attributes", HaveKeyWithValue("wchan", "do_signal_stop")),
-			HaveField("Attributes", HaveKeyWithValue("command", "postgres")),
-		)))
-		Expect(spy.Records).To(ContainElement(SatisfyAll(
-			HaveField("Message", shutdownDiagnosticsMessage),
-			HaveField("Attributes", HaveKeyWithValue("section", "proc")),
-			HaveField("Attributes", HaveKeyWithValue("pid", "123")),
-			HaveField("Attributes", HaveKeyWithValue("field", "cmdline")),
-			HaveField("Attributes", HaveKeyWithValue("line", "postgres autovacuum worker ")),
-		)))
-		Expect(spy.Records).To(ContainElement(SatisfyAll(
-			HaveField("Message", shutdownDiagnosticsMessage),
-			HaveField("Attributes", HaveKeyWithValue("section", "proc")),
-			HaveField("Attributes", HaveKeyWithValue("pid", "123")),
-			HaveField("Attributes", HaveKeyWithValue("field", "wchan")),
-			HaveField("Attributes", HaveKeyWithValue("line", "do_signal_stop")),
-		)))
+			HaveField("Attributes", HaveKey("collectTime")),
+			HaveField("Attributes", HaveKeyWithValue("processes", HaveLen(1))),
+		))
 	})
 })
