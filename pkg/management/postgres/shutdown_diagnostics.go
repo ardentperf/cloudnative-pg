@@ -31,48 +31,13 @@ import (
 )
 
 const (
-	shutdownDiagnosticsLeadTime = 30 * time.Second
-	shutdownDiagnosticsMaxTime  = 10 * time.Second
-	shutdownDiagnosticsMessage  = "PostgreSQL shutdown diagnostics"
+	shutdownDiagnosticsMaxTime = 10 * time.Second
+	shutdownDiagnosticsMessage = "PostgreSQL shutdown diagnostics"
 )
 
 var (
 	shutdownDiagnosticsProcRoot = "/proc"
-	runShutdownDiagnostics      = logShutdownDiagnostics
 )
-
-func scheduleShutdownDiagnostics(ctx context.Context, timeout time.Duration) context.CancelFunc {
-	delay, ok := shutdownDiagnosticsDelay(timeout)
-	if !ok {
-		return func() {}
-	}
-	return scheduleShutdownDiagnosticsAfter(ctx, delay)
-}
-
-func scheduleShutdownDiagnosticsAfter(ctx context.Context, delay time.Duration) context.CancelFunc {
-	scheduleCtx, cancel := context.WithCancel(context.Background())
-	go func() {
-		timer := time.NewTimer(delay)
-		defer timer.Stop()
-
-		select {
-		case <-timer.C:
-			runShutdownDiagnostics(ctx)
-		case <-scheduleCtx.Done():
-		}
-	}()
-	return cancel
-}
-
-func shutdownDiagnosticsDelay(timeout time.Duration) (time.Duration, bool) {
-	if timeout <= 2*time.Second {
-		return 0, false
-	}
-	if timeout <= 2*time.Minute {
-		return timeout * 3 / 4, true
-	}
-	return timeout - shutdownDiagnosticsLeadTime, true
-}
 
 func logShutdownDiagnostics(ctx context.Context) {
 	contextLogger := log.FromContext(ctx)

@@ -23,7 +23,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/management/logtest"
 
@@ -32,52 +31,6 @@ import (
 )
 
 var _ = Describe("shutdown diagnostics", func() {
-	It("calculates when diagnostics should run", func() {
-		delay, ok := shutdownDiagnosticsDelay(2 * time.Second)
-		Expect(ok).To(BeFalse())
-		Expect(delay).To(Equal(time.Duration(0)))
-
-		delay, ok = shutdownDiagnosticsDelay(20 * time.Second)
-		Expect(ok).To(BeTrue())
-		Expect(delay).To(Equal(15 * time.Second))
-
-		delay, ok = shutdownDiagnosticsDelay(30 * time.Minute)
-		Expect(ok).To(BeTrue())
-		Expect(delay).To(Equal(29*time.Minute + 30*time.Second))
-	})
-
-	It("cancels scheduled diagnostics", func() {
-		called := make(chan struct{}, 1)
-		original := runShutdownDiagnostics
-		runShutdownDiagnostics = func(context.Context) {
-			called <- struct{}{}
-		}
-		DeferCleanup(func() {
-			runShutdownDiagnostics = original
-		})
-
-		cancel := scheduleShutdownDiagnosticsAfter(context.Background(), 20*time.Millisecond)
-		cancel()
-
-		Consistently(called, 50*time.Millisecond, 10*time.Millisecond).ShouldNot(Receive())
-	})
-
-	It("runs scheduled diagnostics", func() {
-		called := make(chan struct{}, 1)
-		original := runShutdownDiagnostics
-		runShutdownDiagnostics = func(context.Context) {
-			called <- struct{}{}
-		}
-		DeferCleanup(func() {
-			runShutdownDiagnostics = original
-		})
-
-		cancel := scheduleShutdownDiagnosticsAfter(context.Background(), 10*time.Millisecond)
-		defer cancel()
-
-		Eventually(called, time.Second).Should(Receive())
-	})
-
 	It("collects process information from procfs", func() {
 		procRoot := GinkgoT().TempDir()
 		pidDir := filepath.Join(procRoot, "123")

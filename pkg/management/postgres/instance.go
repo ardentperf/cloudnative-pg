@@ -612,7 +612,6 @@ func (instance *Instance) Shutdown(ctx context.Context, options shutdownOptions)
 // it issues an "fast" shutdown request and waits for completion.
 func (instance *Instance) TryShuttingDownSmartFast(ctx context.Context) error {
 	contextLogger := log.FromContext(ctx)
-	shutdownStart := time.Now()
 
 	var err error
 
@@ -644,16 +643,12 @@ func (instance *Instance) TryShuttingDownSmartFast(ctx context.Context) error {
 
 	if err != nil || smartTimeout == 0 {
 		contextLogger.Info("Requesting fast shutdown of the PostgreSQL instance")
-		cancelDiagnostics := scheduleShutdownDiagnostics(
-			ctx,
-			time.Duration(maxStopDelay)*time.Second-time.Since(shutdownStart))
 		err = instance.Shutdown(ctx,
 			shutdownOptions{
 				Mode: shutdownModeFast,
 				Wait: true,
 			},
 		)
-		cancelDiagnostics()
 	}
 	if err != nil {
 		contextLogger.Error(err, "Error while shutting down the PostgreSQL instance")
@@ -673,7 +668,6 @@ func (instance *Instance) TryShuttingDownFastImmediate(ctx context.Context) erro
 
 	contextLogger.Info("Requesting fast shutdown of the PostgreSQL instance")
 	maxSwitchoverDelay := instance.GetClusterOrDefault().GetMaxSwitchoverDelay()
-	cancelDiagnostics := scheduleShutdownDiagnostics(ctx, time.Duration(maxSwitchoverDelay)*time.Second)
 	err := instance.Shutdown(
 		ctx,
 		shutdownOptions{
@@ -682,9 +676,9 @@ func (instance *Instance) TryShuttingDownFastImmediate(ctx context.Context) erro
 			Timeout: &maxSwitchoverDelay,
 		},
 	)
-	cancelDiagnostics()
 	var exitError *exec.ExitError
 	if errors.As(err, &exitError) {
+		logShutdownDiagnostics(ctx)
 		contextLogger.Info("Graceful shutdown failed. Issuing immediate shutdown",
 			"exitCode", exitError.ExitCode())
 		err = instance.Shutdown(ctx,
