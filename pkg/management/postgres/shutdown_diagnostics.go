@@ -106,7 +106,7 @@ func readProcLines(fileName string, maxLines int, nullSeparated bool) []string {
 		if maxLines > 0 && lineNumber >= maxLines {
 			break
 		}
-		result = append(result, strings.TrimSpace(line))
+		result = append(result, strings.Join(strings.Fields(line), " "))
 	}
 	return result
 }

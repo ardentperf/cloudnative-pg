@@ -54,7 +54,7 @@ var _ = Describe("shutdown diagnostics", func() {
 		Expect(processes).To(HaveLen(1))
 		Expect(processes[0]).To(HaveField("PID", "123"))
 		Expect(processes[0].Files["cmdline"]).To(Equal([]string{"postgres autovacuum worker"}))
-		Expect(processes[0].Files["status"]).To(ContainElement("State:\tT (stopped)"))
+		Expect(processes[0].Files["status"]).To(ContainElement("State: T (stopped)"))
 		Expect(processes[0].Files["wchan"]).To(Equal([]string{"do_signal_stop"}))
 	})
 })
