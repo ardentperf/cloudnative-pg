@@ -23,12 +23,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/cloudnative-pg/machinery/pkg/log"
+	"github.com/mitchellh/go-ps"
 )
 
 const (
@@ -81,7 +81,7 @@ func logShutdownDiagnostics(ctx context.Context) {
 
 	var out strings.Builder
 	fmt.Fprintf(&out, "collect_time=%s\n", time.Now().UTC().Format(time.RFC3339))
-	appendPSOutput(diagCtx, &out)
+	appendProcessSummary(diagCtx, &out)
 	appendProcOutput(diagCtx, &out, shutdownDiagnosticsProcRoot)
 
 	for _, line := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
@@ -89,23 +89,22 @@ func logShutdownDiagnostics(ctx context.Context) {
 	}
 }
 
-func appendPSOutput(ctx context.Context, out *strings.Builder) {
-	out.WriteString("--- ps all ---\n")
-	args := []string{"-e", "-o", "pid,ppid,pgid,sid,user,stat,wchan:32,comm,args", "--sort", "pid"}
-	if data, err := exec.CommandContext(ctx, "ps", args...).CombinedOutput(); err == nil {
-		out.Write(data)
+func appendProcessSummary(ctx context.Context, out *strings.Builder) {
+	out.WriteString("--- process summary ---\n")
+	processes, err := ps.Processes()
+	if err != nil {
+		fmt.Fprintf(out, "process listing failed: %v\n", err)
 		return
-	} else {
-		fmt.Fprintf(out, "ps %s failed: %v\n%s", strings.Join(args, " "), err, data)
 	}
 
-	args = []string{"-eo", "pid,ppid,stat,wchan,comm,args"}
-	data, err := exec.CommandContext(ctx, "ps", args...).CombinedOutput()
-	if err != nil {
-		fmt.Fprintf(out, "fallback ps %s failed: %v\n%s", strings.Join(args, " "), err, data)
-		return
+	out.WriteString("    PID    PPID COMMAND\n")
+	for _, process := range processes {
+		if err := ctx.Err(); err != nil {
+			fmt.Fprintf(out, "process listing stopped: %v\n", err)
+			return
+		}
+		fmt.Fprintf(out, "%7d %7d %s\n", process.Pid(), process.PPid(), process.Executable())
 	}
-	out.Write(data)
 }
 
 func appendProcOutput(ctx context.Context, out *strings.Builder, procRoot string) {
