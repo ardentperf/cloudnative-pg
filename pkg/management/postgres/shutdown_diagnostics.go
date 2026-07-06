@@ -29,14 +29,6 @@ import (
 	"github.com/cloudnative-pg/machinery/pkg/log"
 )
 
-const (
-	shutdownDiagnosticsMessage = "PostgreSQL shutdown diagnostics"
-)
-
-var (
-	shutdownDiagnosticsProcRoot = "/proc"
-)
-
 func logShutdownDiagnostics(ctx context.Context) {
 	diagCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -46,9 +38,9 @@ func logShutdownDiagnostics(ctx context.Context) {
 		if sample > 1 && !sleepForShutdownDiagnostics(diagCtx, 3*time.Second) {
 			return
 		}
-		contextLogger.Info(shutdownDiagnosticsMessage,
+		contextLogger.Info("PostgreSQL shutdown diagnostics",
 			"sample", sample,
-			"processes", collectProcDiagnostics(diagCtx, shutdownDiagnosticsProcRoot))
+			"processes", collectProcDiagnostics(diagCtx, "/proc"))
 	}
 }
 
