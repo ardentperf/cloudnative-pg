@@ -30,23 +30,20 @@ import (
 )
 
 const (
-	shutdownDiagnosticsMaxTime     = 10 * time.Second
-	shutdownDiagnosticsMessage     = "PostgreSQL shutdown diagnostics"
-	shutdownDiagnosticsSampleCount = 3
+	shutdownDiagnosticsMessage = "PostgreSQL shutdown diagnostics"
 )
 
 var (
-	shutdownDiagnosticsProcRoot       = "/proc"
-	shutdownDiagnosticsSampleInterval = 3 * time.Second
+	shutdownDiagnosticsProcRoot = "/proc"
 )
 
 func logShutdownDiagnostics(ctx context.Context) {
-	diagCtx, cancel := context.WithTimeout(context.Background(), shutdownDiagnosticsMaxTime)
+	diagCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	contextLogger := log.FromContext(ctx)
-	for sample := 1; sample <= shutdownDiagnosticsSampleCount; sample++ {
-		if sample > 1 && !sleepForShutdownDiagnostics(diagCtx, shutdownDiagnosticsSampleInterval) {
+	for sample := 1; sample <= 3; sample++ {
+		if sample > 1 && !sleepForShutdownDiagnostics(diagCtx, 3*time.Second) {
 			return
 		}
 		contextLogger.Info(shutdownDiagnosticsMessage,
