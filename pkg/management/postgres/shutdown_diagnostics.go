@@ -34,14 +34,17 @@ func logShutdownDiagnostics(ctx context.Context) {
 	defer cancel()
 
 	contextLogger := log.FromContext(ctx)
-	for sample := 1; sample <= 3; sample++ {
-		if sample > 1 {
-			time.Sleep(3 * time.Second)
-		}
-		contextLogger.Info("PostgreSQL shutdown diagnostics",
-			"sample", sample,
-			"processes", collectProcDiagnostics(diagCtx, "/proc"))
-	}
+	contextLogger.Info("PostgreSQL shutdown diagnostics",
+		"sample", 1,
+		"processes", collectProcDiagnostics(diagCtx, "/proc"))
+	time.Sleep(3 * time.Second)
+	contextLogger.Info("PostgreSQL shutdown diagnostics",
+		"sample", 2,
+		"processes", collectProcDiagnostics(diagCtx, "/proc"))
+	time.Sleep(3 * time.Second)
+	contextLogger.Info("PostgreSQL shutdown diagnostics",
+		"sample", 3,
+		"processes", collectProcDiagnostics(diagCtx, "/proc"))
 }
 
 type procDiagnostics struct {
