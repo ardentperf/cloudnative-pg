@@ -41,13 +41,10 @@ var (
 )
 
 func logShutdownDiagnostics(ctx context.Context) {
-	logShutdownDiagnosticsWithLogger(ctx, log.FromContext(ctx))
-}
-
-func logShutdownDiagnosticsWithLogger(ctx context.Context, contextLogger log.Logger) {
 	diagCtx, cancel := context.WithTimeout(context.Background(), shutdownDiagnosticsMaxTime)
 	defer cancel()
 
+	contextLogger := log.FromContext(ctx)
 	for sample := 1; sample <= shutdownDiagnosticsSampleCount; sample++ {
 		if sample > 1 && !sleepForShutdownDiagnostics(diagCtx, shutdownDiagnosticsSampleInterval) {
 			return

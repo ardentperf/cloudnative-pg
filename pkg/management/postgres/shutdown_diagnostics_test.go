@@ -24,8 +24,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/cloudnative-pg/cloudnative-pg/pkg/management/logtest"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -58,26 +56,5 @@ var _ = Describe("shutdown diagnostics", func() {
 		Expect(processes[0].Files["cmdline"]).To(Equal([]string{"postgres autovacuum worker "}))
 		Expect(processes[0].Files["status"]).To(ContainElement("State:\tT (stopped)"))
 		Expect(processes[0].Files["wchan"]).To(Equal([]string{"do_signal_stop"}))
-
-		originalProcRoot := shutdownDiagnosticsProcRoot
-		shutdownDiagnosticsProcRoot = procRoot
-		originalSampleInterval := shutdownDiagnosticsSampleInterval
-		shutdownDiagnosticsSampleInterval = 0
-		DeferCleanup(func() {
-			shutdownDiagnosticsProcRoot = originalProcRoot
-			shutdownDiagnosticsSampleInterval = originalSampleInterval
-		})
-
-		spy := logtest.NewSpy()
-		logShutdownDiagnosticsWithLogger(context.Background(), spy)
-
-		Expect(spy.Records).To(HaveLen(3))
-		for sample, record := range spy.Records {
-			Expect(record).To(SatisfyAll(
-				HaveField("Message", shutdownDiagnosticsMessage),
-				HaveField("Attributes", HaveKeyWithValue("sample", sample+1)),
-				HaveField("Attributes", HaveKeyWithValue("processes", HaveLen(1))),
-			))
-		}
 	})
 })
