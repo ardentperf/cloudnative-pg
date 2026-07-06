@@ -71,7 +71,6 @@ var _ = Describe("shutdown diagnostics", func() {
 		Expect(spy.Records).To(HaveLen(1))
 		Expect(spy.Records[0]).To(SatisfyAll(
 			HaveField("Message", shutdownDiagnosticsMessage),
-			HaveField("Attributes", HaveKey("collectTime")),
 			HaveField("Attributes", HaveKeyWithValue("processes", HaveLen(1))),
 		))
 	})

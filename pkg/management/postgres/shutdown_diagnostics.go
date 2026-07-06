@@ -47,7 +47,6 @@ func logShutdownDiagnosticsWithLogger(ctx context.Context, contextLogger log.Log
 	defer cancel()
 
 	contextLogger.Info(shutdownDiagnosticsMessage,
-		"collectTime", time.Now().UTC().Format(time.RFC3339),
 		"processes", collectProcDiagnostics(diagCtx, shutdownDiagnosticsProcRoot))
 }
 
